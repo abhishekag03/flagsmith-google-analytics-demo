@@ -48,11 +48,11 @@ npm install
 1. Go to [app.flagsmith.com](https://app.flagsmith.com/signup)
 2. Create project: "Telehealth Booking Demo"
 3. Create feature flag:
-  - Name: `booking_flow_variant`
+  - Name: `booking_flow_config`
   - Type: String
   - Value: `streamlined` or `detailed`
-4. Copy environment key (starts with `ser.`)
-5. Update `src/App.js` line 25 with your key
+4. Copy client environment key
+5. Update `src/App.js` line 45 with your key
 
 
 ### 3. Setup Google Analytics

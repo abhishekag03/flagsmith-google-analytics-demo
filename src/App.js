@@ -2,9 +2,33 @@ import React, { useState, useEffect } from 'react';
 import flagsmith from 'flagsmith';
 import './App.css';
 
+// Default configuration fallback
+const DEFAULT_CONFIG = {
+  name: 'default',
+  display_name: '📋 Standard Flow',
+  form_title: 'Book Your Appointment',
+  button_text: 'Book Appointment',
+  button_color: '#667eea',
+  button_text_color: '#ffffff',
+  submit_text: 'Schedule Appointment',
+  submit_delay: 1000,
+  form_fields: [
+    { name: 'name', type: 'text', placeholder: 'Full Name', required: true },
+    { name: 'email', type: 'email', placeholder: 'Email', required: true },
+    { name: 'date', type: 'date', required: true },
+    { name: 'time', type: 'select', placeholder: 'Select Time', required: true, 
+      options: [
+        { value: '09:00', label: '9:00 AM' },
+        { value: '14:00', label: '2:00 PM' },
+        { value: '16:00', label: '4:00 PM' }
+      ]
+    }
+  ]
+};
+
 function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const [bookingVariant, setBookingVariant] = useState('detailed');
+  const [bookingConfig, setBookingConfig] = useState(null);
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [bookingComplete, setBookingComplete] = useState(false);
 
@@ -18,18 +42,25 @@ function App() {
   useEffect(() => {
     // Initialize Flagsmith - REPLACE with your actual environment key
     flagsmith.init({
-      environmentID: 'ser.***', // Replace with your key
+      environmentID: '', // Replace with your key
       onChange: (oldFlags, params) => {
-        const variant = flagsmith.getValue('booking_flow_variant') || 'detailed';
-        setBookingVariant(variant);
+        const configJson = flagsmith.getValue('booking_flow_config') || JSON.stringify(DEFAULT_CONFIG);
         
-        // Track variant exposure in Google Analytics
-        if (window.gtag) {
-          window.gtag('event', 'variant_exposure', {
-            event_category: 'Feature Flag',
-            event_label: 'booking_flow_variant',
-            variant: variant
-          });
+        try {
+          const config = JSON.parse(configJson);
+          setBookingConfig(config);
+          
+          // Track variant exposure with actual config name
+          if (window.gtag) {
+            window.gtag('event', 'variant_exposure', {
+              event_category: 'Feature Flag',
+              event_label: 'booking_flow_config',
+              variant: config.name
+            });
+          }
+        } catch (error) {
+          console.error('Invalid config JSON:', error);
+          setBookingConfig(DEFAULT_CONFIG);
         }
       }
     });
@@ -40,13 +71,13 @@ function App() {
   const handleDoctorSelect = (doctor) => {
     setSelectedDoctor(doctor);
     
-    // Track doctor selection
+    // Track doctor selection with config name
     if (window.gtag) {
       window.gtag('event', 'doctor_selected', {
         event_category: 'User Interaction',
         doctor_id: doctor.id,
         doctor_name: doctor.name,
-        variant: bookingVariant
+        variant: bookingConfig?.name || 'unknown'
       });
     }
   };
@@ -55,11 +86,11 @@ function App() {
     setBookingComplete(true);
     setSelectedDoctor(null);
     
-    // Track successful booking
+    // Track successful booking with config name
     if (window.gtag) {
       window.gtag('event', 'appointment_booked', {
         event_category: 'Conversion',
-        variant: bookingVariant,
+        variant: bookingConfig?.name || 'unknown',
         doctor_id: selectedDoctor?.id,
         value: selectedDoctor?.fee
       });
@@ -76,7 +107,7 @@ function App() {
         <div className="success">
           <h1>🎉 Appointment Booked!</h1>
           <p>Your appointment has been successfully scheduled.</p>
-          <p><strong>Booking Method:</strong> {bookingVariant === 'streamlined' ? 'Quick Booking' : 'Detailed Intake'}</p>
+          <p><strong>Booking Method:</strong> {bookingConfig?.display_name || 'Standard Flow'}</p>
           <button onClick={() => setBookingComplete(false)}>Book Another</button>
         </div>
       </div>
@@ -90,7 +121,7 @@ function App() {
           <button onClick={() => setSelectedDoctor(null)}>← Back</button>
           <h1>Book Appointment</h1>
           <div className="variant-badge">
-            {bookingVariant === 'streamlined' ? '⚡ Quick Flow' : '📋 Detailed Flow'}
+            {bookingConfig?.display_name || 'Loading...'}
           </div>
         </header>
 
@@ -101,11 +132,10 @@ function App() {
             <p className="fee">${selectedDoctor.fee}</p>
           </div>
 
-          {bookingVariant === 'streamlined' ? (
-            <StreamlinedBooking onComplete={handleBookingComplete} />
-          ) : (
-            <DetailedBooking onComplete={handleBookingComplete} />
-          )}
+          <DynamicBookingForm 
+            config={bookingConfig}
+            onComplete={handleBookingComplete} 
+          />
         </div>
       </div>
     );
@@ -117,7 +147,7 @@ function App() {
         <h1>🏥 TeleHealth Booking Demo</h1>
         <p>Flagsmith + Google Analytics Integration</p>
         <div className="variant-badge">
-          Active Variant: {bookingVariant === 'streamlined' ? '⚡ Streamlined' : '📋 Detailed'}
+          Active Variant: {bookingConfig?.display_name || 'Loading...'}
         </div>
       </header>
 
@@ -130,10 +160,14 @@ function App() {
               <p>{doctor.specialty}</p>
               <p className="fee">${doctor.fee}</p>
               <button 
-                className={`book-btn ${bookingVariant}`}
+                className="book-btn"
+                style={{
+                  backgroundColor: bookingConfig?.button_color || '#667eea',
+                  color: bookingConfig?.button_text_color || '#ffffff'
+                }}
                 onClick={() => handleDoctorSelect(doctor)}
               >
-                {bookingVariant === 'streamlined' ? '🚀 Quick Book' : '📅 Book Appointment'}
+                {bookingConfig?.button_text || 'Book Appointment'}
               </button>
             </div>
           ))}
@@ -143,194 +177,171 @@ function App() {
   );
 }
 
-// Streamlined Booking Component - Optimized for Speed
-function StreamlinedBooking({ onComplete }) {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    date: '',
-    time: ''
-  });
-
+// Dynamic booking form component - completely configuration-driven
+function DynamicBookingForm({ config, onComplete }) {
+  const [formData, setFormData] = useState({});
+  
+  if (!config) return <div>Loading form...</div>;
+  
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    // Track form submission
+    // Track form submission with config details
     if (window.gtag) {
       window.gtag('event', 'booking_form_submitted', {
         event_category: 'Form',
-        variant: 'streamlined',
-        form_fields: 4
+        variant: config.name,
+        form_fields: config.form_fields?.length || 0
       });
     }
     
-    setTimeout(onComplete, 1000); // Simulate API call
+    setTimeout(onComplete, config.submit_delay || 1000);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="booking-form streamlined">
-      <h3>⚡ Quick Booking (4 fields)</h3>
+    <form onSubmit={handleSubmit} className="booking-form dynamic">
+      <h3>{config.form_title}</h3>
       
-      <input
-        type="text"
-        placeholder="Your Name"
-        value={formData.name}
-        onChange={(e) => setFormData({...formData, name: e.target.value})}
-        required
-      />
+      {/* Show testimonials if configured */}
+      {config.show_testimonials && (
+        <div className="testimonials">
+          <p>⭐⭐⭐⭐⭐ "Amazing service!" - Sarah M.</p>
+        </div>
+      )}
       
-      <input
-        type="email"
-        placeholder="Email"
-        value={formData.email}
-        onChange={(e) => setFormData({...formData, email: e.target.value})}
-        required
-      />
+      {/* Show guarantee if configured */}
+      {config.show_guarantee && (
+        <div className="guarantee">
+          🛡️ {config.show_guarantee}
+        </div>
+      )}
       
-      <input
-        type="date"
-        value={formData.date}
-        onChange={(e) => setFormData({...formData, date: e.target.value})}
-        required
-      />
+      {/* Show social proof if configured */}
+      {config.show_social_proof && (
+        <div className="social-proof">
+          👥 {config.show_social_proof}
+        </div>
+      )}
       
-      <select
-        value={formData.time}
-        onChange={(e) => setFormData({...formData, time: e.target.value})}
-        required
+      {/* Show countdown if configured */}
+      {config.show_countdown && (
+        <div className="countdown">
+          ⏰ Limited time offer!
+        </div>
+      )}
+      
+      {/* Dynamic form fields */}
+      {config.form_fields?.map(field => (
+        <DynamicField 
+          key={field.name}
+          field={field}
+          value={formData[field.name] || ''}
+          onChange={(value) => setFormData({...formData, [field.name]: value})}
+        />
+      ))}
+      
+      {/* Show discount banner if configured */}
+      {config.discount_banner && (
+        <div className="discount-banner">
+          💰 {config.discount_banner}
+        </div>
+      )}
+      
+      <button 
+        type="submit" 
+        className="submit-btn dynamic"
+        style={{ 
+          backgroundColor: config.button_color || '#667eea',
+          color: config.button_text_color || '#ffffff',
+          animation: config.button_animation || 'none'
+        }}
       >
-        <option value="">Select Time</option>
-        <option value="09:00">9:00 AM</option>
-        <option value="14:00">2:00 PM</option>
-        <option value="16:00">4:00 PM</option>
-      </select>
-      
-      <button type="submit" className="submit-btn streamlined">
-        🚀 Book Now
+        {config.submit_text || 'Submit'}
       </button>
     </form>
   );
 }
 
-// Detailed Booking Component - Optimized for Data Quality
-function DetailedBooking({ onComplete }) {
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    dob: '',
-    address: '',
-    medical: '',
-    emergency: '',
-    date: '',
-    time: '',
-    reason: ''
-  });
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    // Track form submission
-    if (window.gtag) {
-      window.gtag('event', 'booking_form_submitted', {
-        event_category: 'Form',
-        variant: 'detailed',
-        form_fields: 10
-      });
-    }
-    
-    setTimeout(onComplete, 1500); // Simulate longer API call
+// Dynamic field component that renders different input types
+function DynamicField({ field, value, onChange }) {
+  const baseProps = {
+    value,
+    onChange: (e) => onChange(e.target.value),
+    required: field.required,
+    placeholder: field.placeholder
   };
 
-  return (
-    <form onSubmit={handleSubmit} className="booking-form detailed">
-      <h3>📋 Complete Medical Intake</h3>
-      
-      <div className="form-section">
-        <h4>Personal Information</h4>
-        <input
-          type="text"
-          placeholder="Full Name"
-          value={formData.name}
-          onChange={(e) => setFormData({...formData, name: e.target.value})}
-          required
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          value={formData.email}
-          onChange={(e) => setFormData({...formData, email: e.target.value})}
-          required
-        />
-        <input
-          type="tel"
-          placeholder="Phone"
-          value={formData.phone}
-          onChange={(e) => setFormData({...formData, phone: e.target.value})}
-          required
-        />
-        <input
-          type="date"
-          placeholder="Date of Birth"
-          value={formData.dob}
-          onChange={(e) => setFormData({...formData, dob: e.target.value})}
-          required
-        />
-        <input
-          type="text"
-          placeholder="Address"
-          value={formData.address}
-          onChange={(e) => setFormData({...formData, address: e.target.value})}
-        />
-      </div>
-
-      <div className="form-section">
-        <h4>Medical Information</h4>
-        <textarea
-          placeholder="Medical History"
-          value={formData.medical}
-          onChange={(e) => setFormData({...formData, medical: e.target.value})}
-        />
-        <input
-          type="text"
-          placeholder="Emergency Contact"
-          value={formData.emergency}
-          onChange={(e) => setFormData({...formData, emergency: e.target.value})}
-          required
-        />
-      </div>
-
-      <div className="form-section">
-        <h4>Appointment Details</h4>
-        <input
-          type="date"
-          value={formData.date}
-          onChange={(e) => setFormData({...formData, date: e.target.value})}
-          required
-        />
-        <select
-          value={formData.time}
-          onChange={(e) => setFormData({...formData, time: e.target.value})}
-          required
-        >
-          <option value="">Select Time</option>
-          <option value="09:00">9:00 AM</option>
-          <option value="14:00">2:00 PM</option>
-          <option value="16:00">4:00 PM</option>
-        </select>
-        <textarea
-          placeholder="Reason for visit"
-          value={formData.reason}
-          onChange={(e) => setFormData({...formData, reason: e.target.value})}
-          required
-        />
-      </div>
-      
-      <button type="submit" className="submit-btn detailed">
-        📅 Complete Booking
-      </button>
-    </form>
-  );
+  switch (field.type) {
+    case 'text':
+      return (
+        <div className="form-field">
+          <input type="text" {...baseProps} />
+        </div>
+      );
+    
+    case 'email':
+      return (
+        <div className="form-field">
+          <input type="email" {...baseProps} />
+        </div>
+      );
+    
+    case 'tel':
+      return (
+        <div className="form-field">
+          <input type="tel" {...baseProps} />
+        </div>
+      );
+    
+    case 'date':
+      return (
+        <div className="form-field">
+          <input 
+            type="date" 
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            required={field.required}
+            min={new Date().toISOString().split('T')[0]}
+          />
+        </div>
+      );
+    
+    case 'textarea':
+      return (
+        <div className="form-field">
+          <textarea 
+            {...baseProps}
+            rows={field.rows || 3}
+          />
+        </div>
+      );
+    
+    case 'select':
+      return (
+        <div className="form-field">
+          <select 
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            required={field.required}
+          >
+            <option value="">{field.placeholder || 'Select an option'}</option>
+            {field.options?.map(option => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      );
+    
+    default:
+      return (
+        <div className="form-field">
+          <input type="text" {...baseProps} />
+        </div>
+      );
+  }
 }
 
 export default App;
+
