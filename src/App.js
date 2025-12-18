@@ -26,6 +26,18 @@ const DEFAULT_CONFIG = {
   ]
 };
 
+// returns a random user id among user_1, user_2, user_3
+// must be replaced with the actual user id logic
+function getUserId() {
+  let userId = localStorage.getItem('user_id');
+  if (!userId) {
+    userId = 'user_' + (Math.floor(Math.random() * 3) + 1)
+    localStorage.setItem('userId', userId); 
+  }
+  return userId;
+}
+
+
 function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [bookingConfig, setBookingConfig] = useState(null);
@@ -40,9 +52,11 @@ function App() {
   ];
 
   useEffect(() => {
+    const userId = getUserId();
     // Initialize Flagsmith - REPLACE with your actual environment key
     flagsmith.init({
       environmentID: '', // Replace with your key
+      identity: userId,
       onChange: (oldFlags, params) => {
         const configJson = flagsmith.getValue('booking_flow_config') || JSON.stringify(DEFAULT_CONFIG);
         
@@ -55,7 +69,8 @@ function App() {
             window.gtag('event', 'variant_exposure', {
               event_category: 'Feature Flag',
               event_label: 'booking_flow_config',
-              variant: config.name
+              variant: config.name,
+              user_id: userId
             });
           }
         } catch (error) {
@@ -70,14 +85,15 @@ function App() {
 
   const handleDoctorSelect = (doctor) => {
     setSelectedDoctor(doctor);
-    
+    const userId = getUserId()
     // Track doctor selection with config name
     if (window.gtag) {
       window.gtag('event', 'doctor_selected', {
         event_category: 'User Interaction',
         doctor_id: doctor.id,
         doctor_name: doctor.name,
-        variant: bookingConfig?.name || 'unknown'
+        variant: bookingConfig?.name || 'unknown',
+        user_id: userId
       });
     }
   };
@@ -85,6 +101,7 @@ function App() {
   const handleBookingComplete = () => {
     setBookingComplete(true);
     setSelectedDoctor(null);
+    const userId = getUserId()
     
     // Track successful booking with config name
     if (window.gtag) {
@@ -92,7 +109,8 @@ function App() {
         event_category: 'Conversion',
         variant: bookingConfig?.name || 'unknown',
         doctor_id: selectedDoctor?.id,
-        value: selectedDoctor?.fee
+        value: selectedDoctor?.fee,
+        user_id: userId
       });
     }
   };
